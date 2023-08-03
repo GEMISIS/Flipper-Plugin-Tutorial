@@ -2,6 +2,9 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <stdlib.h>
+#include <dolphin/dolphin.h>
+#include <notification/notification.h>
+#include <notification/notification_messages.h>
 
 typedef enum {
     EventTypeTick,
@@ -14,15 +17,15 @@ typedef struct {
 } PluginEvent;
 
 typedef struct {
+    FuriMutex* mutex;
     int x;
     int y;
 } PluginState;
 
 static void render_callback(Canvas* const canvas, void* ctx) {
-    const PluginState* plugin_state = acquire_mutex((ValueMutex*)ctx, 25);
-    if(plugin_state == NULL) {
-        return;
-    }
+    const PluginState* plugin_state = ctx;
+    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
+
     // border around the edge of the screen
     canvas_draw_frame(canvas, 0, 0, 128, 64);
 
@@ -30,7 +33,7 @@ static void render_callback(Canvas* const canvas, void* ctx) {
     canvas_draw_str_aligned(
         canvas, plugin_state->x, plugin_state->y, AlignRight, AlignBottom, "Hello World!");
 
-    release_mutex((ValueMutex*)ctx, plugin_state);
+    furi_mutex_release(plugin_state->mutex);
 }
 
 static void input_callback(InputEvent* input_event, FuriMessageQueue* event_queue) {
@@ -47,21 +50,24 @@ static void hello_world_state_init(PluginState* const plugin_state) {
 
 int32_t hello_world_app() {
     FuriMessageQueue* event_queue = furi_message_queue_alloc(8, sizeof(PluginEvent));
+    PluginState plugin_state;
 
-    PluginState* plugin_state = malloc(sizeof(PluginState));
+    hello_world_state_init(&plugin_state);
 
-    hello_world_state_init(plugin_state);
+    {
+        plugin_state.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+        if (!plugin_state.mutex) {
+            FURI_LOG_E("Hello_world", "cannot create mutex\r\n");
 
-    ValueMutex state_mutex;
-    if(!init_mutex(&state_mutex, plugin_state, sizeof(PluginState))) {
-        FURI_LOG_E("Hello_world", "cannot create mutex\r\n");
-        free(plugin_state);
-        return 255;
+            furi_message_queue_free(event_queue);
+            
+            return 255;
+        }
     }
 
     // Set system callbacks
     ViewPort* view_port = view_port_alloc();
-    view_port_draw_callback_set(view_port, render_callback, &state_mutex);
+    view_port_draw_callback_set(view_port, render_callback, &plugin_state);
     view_port_input_callback_set(view_port, input_callback, event_queue);
 
     // Open GUI and register view_port
@@ -69,27 +75,27 @@ int32_t hello_world_app() {
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
     PluginEvent event;
-    for(bool processing = true; processing;) {
+    for (bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
-
-        PluginState* plugin_state = (PluginState*)acquire_mutex_block(&state_mutex);
-
+        
+        furi_mutex_acquire(&plugin_state.mutex, FuriWaitForever);
+        
         if(event_status == FuriStatusOk) {
             // press events
             if(event.type == EventTypeKey) {
                 if(event.input.type == InputTypePress) {
                     switch(event.input.key) {
                     case InputKeyUp:
-                        plugin_state->y--;
+                        plugin_state.y--;
                         break;
                     case InputKeyDown:
-                        plugin_state->y++;
+                        plugin_state.y++;
                         break;
                     case InputKeyRight:
-                        plugin_state->x++;
+                        plugin_state.x++;
                         break;
                     case InputKeyLeft:
-                        plugin_state->x--;
+                        plugin_state.x--;
                         break;
                     case InputKeyOk:
                     case InputKeyBack:
@@ -104,9 +110,9 @@ int32_t hello_world_app() {
             FURI_LOG_D("Hello_world", "FuriMessageQueue: event timeout");
             // event timeout
         }
-
+        
         view_port_update(view_port);
-        release_mutex(&state_mutex, plugin_state);
+        furi_mutex_release(&plugin_state.mutex);
     }
 
     view_port_enabled_set(view_port, false);
@@ -114,7 +120,7 @@ int32_t hello_world_app() {
     furi_record_close("gui");
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
-    delete_mutex(&state_mutex);
-
+    furi_mutex_free(&plugin_state.mutex);
+    
     return 0;
 }
