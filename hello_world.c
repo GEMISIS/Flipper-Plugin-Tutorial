@@ -56,11 +56,11 @@ int32_t hello_world_app() {
 
     {
         plugin_state.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-        if (!plugin_state.mutex) {
+        if(!plugin_state.mutex) {
             FURI_LOG_E("Hello_world", "cannot create mutex\r\n");
 
             furi_message_queue_free(event_queue);
-            
+
             return 255;
         }
     }
@@ -75,11 +75,11 @@ int32_t hello_world_app() {
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
     PluginEvent event;
-    for (bool processing = true; processing;) {
+    for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
-        
-        furi_mutex_acquire(&plugin_state.mutex, FuriWaitForever);
-        
+
+        furi_mutex_acquire(plugin_state.mutex, FuriWaitForever);
+
         if(event_status == FuriStatusOk) {
             // press events
             if(event.type == EventTypeKey) {
@@ -110,9 +110,9 @@ int32_t hello_world_app() {
             FURI_LOG_D("Hello_world", "FuriMessageQueue: event timeout");
             // event timeout
         }
-        
+
         view_port_update(view_port);
-        furi_mutex_release(&plugin_state.mutex);
+        furi_mutex_release(plugin_state.mutex);
     }
 
     view_port_enabled_set(view_port, false);
@@ -120,7 +120,7 @@ int32_t hello_world_app() {
     furi_record_close("gui");
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
-    furi_mutex_free(&plugin_state.mutex);
-    
+    furi_mutex_free(plugin_state.mutex);
+
     return 0;
 }
